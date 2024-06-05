@@ -1,0 +1,97 @@
+version: '3.8'
+
+networks:
+  mynet:
+    driver: bridge
+
+volumes:
+  db_data:
+
+services:
+  discovery-service:
+    image: ion21/newdiscovery:05.06.2024.15.16.13
+    networks:
+      - mynet
+    ports:
+      - "8761:8761"
+
+  mysql:
+    image: mysql:5.7
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: micro_db
+    networks:
+      - mynet
+    ports:
+      - "3307:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 1
+
+  query-service:
+    image: ion21/query-service:05.06.2024.16.02.27
+    networks:
+      - mynet
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    ports:
+      - "8082:8082"
+
+  command-service:
+    image: ion21/command-service:05.06.2024.14.36.42
+    networks:
+      - mynet
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      mysql:
+        condition:
+          service_healthy
+
+  nserver-service:
+    image: ion21/server-service:05.06.2024.14.48.37
+    networks:
+      - mynet
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+       mysql:
+          condition: service_healthy
+       discovery-service:
+         condition: service_started
+
+  edge:
+    image: ion21/gateway-service:05.06.2024.14.43.30
+    networks:
+      - mynet
+    ports:
+      - "5000:5000"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+        discovery-service:
+          condition: service_started
+        nserver-service:
+          condition: service_started
+
+  client:
+    image: ion21/client-service:07.05.2024.11.11.15
+    networks:
+      - mynet
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_PATH_TO=development
+      - REACT_APP_API_URL=http://34.247.255.42:5000
+
+    depends_on:
+      - edge
+
